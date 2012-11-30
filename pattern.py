@@ -44,7 +44,7 @@ def countAllele(col):
     count[a] = count[a] + 1
   return count
 
-def isHetero(col,threshold=0.5):
+def isHetero(col,threshold=0.3):
   c = countAllele(col)
   del c["N"]
   v = sorted(c.values(),reverse=True)
@@ -67,8 +67,8 @@ class Similarity:
 def similarity(snp1, snp2):
   overlap = filter(lambda p: not (p[0] == "N" or p[1] == "N"),
                    zip(snp1, snp2))
-  score = reduce(lambda a,b: a+b,
-                 map(lambda p: 1 if p[0] == p[1] else 0, overlap),0)
+  score = reduce(lambda a,b: a if a < 0 else a+b ,
+                 map(lambda p: 1 if p[0] == p[1] else -1, overlap),0)
   return Similarity(len(snp1), len(snp2), len(overlap), score)
 
 def makePattern(size):
@@ -169,20 +169,26 @@ if debug:
 if __name__ == "__main__":
   args = parse()
   
-  haprotypes = alignHaprotype(alignSnps(filterHeterotype(readData(open(args.snp_file)))))
+  raw_calls = readData(open(args.snp_file))
+  allreads = set([ c.read_name for c in raw_calls])
+  haprotypes = alignHaprotype(alignSnps(filterHeterotype(raw_calls)))
   
   hapro_fn = re.sub(".txt$", ".hap", args.snp_file.split("/")[-1])
-  hapro_file = open(args.out_dir + hapro_fn,"w")
+  hapro_file = open(args.out_dir + "/" + hapro_fn,"w")
   for hap in haprotypes:
     print >> hapro_file, "%5i %s" % (len(hap[1])," ".join(hap[0]))
   
   index=1
   for hap in haprotypes[:args.num_haprotype]:
+    if index != 1:
+      allreads.difference_update(set(hap[1]))
     sam_fn = re.sub(".sam$", 
                     ".hap%02i.sam"%index,
                     args.sam_file.split("/")[-1])
-    hap_sam_fn = args.out_dir + sam_fn
+    hap_sam_fn = args.out_dir + "/" + sam_fn
     filter_sam(set(hap[1]),
                open(args.sam_file),
                open(hap_sam_fn,"w"))
     index = index + 1
+
+  filter_sam(allreads,open(args.sam_file), open("test.sam","w"))
