@@ -180,8 +180,6 @@ if __name__ == "__main__":
   
   index=1
   for hap in haprotypes[:args.num_haprotype]:
-    if index != 1:
-      allreads.difference_update(set(hap[1]))
     sam_fn = re.sub(".sam$", 
                     ".hap%02i.sam"%index,
                     args.sam_file.split("/")[-1])
@@ -190,5 +188,3 @@ if __name__ == "__main__":
                open(args.sam_file),
                open(hap_sam_fn,"w"))
     index = index + 1
-
-  filter_sam(allreads,open(args.sam_file), open("test.sam","w"))
