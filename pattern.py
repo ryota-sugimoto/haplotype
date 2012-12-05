@@ -114,7 +114,7 @@ def alignSnps(calls_):
   return res
 
 def alignHaprotype(hapros_):
-  haprotypes = sorted(filter(lambda h:len(h[1]) > 100, hapros_),
+  haprotypes = sorted(filter(lambda h:len(h[1]) > 10, hapros_),
                       key=lambda h:len(h[1]))
   res = []
   while haprotypes:
@@ -124,12 +124,14 @@ def alignHaprotype(hapros_):
     grouped_calls = init[2]
     NoSimilarHaprotype = False
     while not NoSimilarHaprotype and haprotypes:
-      hapros = filter(lambda h: similarity(sample, h[0]).score > 2, haprotypes)
-      if hapros:
-        for h in hapros:
-          grouped_readnames.extend(h[1])
-          grouped_calls.extend(h[2])
-          haprotypes.remove(h)
+      most_similar_hapro = sorted(haprotypes,
+                                  key=lambda h: similarity(sample, h[0]).score)[-1]
+      score = similarity(sample, most_similar_hapro[0]).score
+      if most_similar_hapro and score > 1:
+        grouped_readnames.extend(most_similar_hapro[1])
+        grouped_calls.extend(most_similar_hapro[2])
+        haprotypes.remove(most_similar_hapro)
+        sample = combine(grouped_calls)
       else:
         NoSimilarHaprotype = True
     new_haprotype = combine(grouped_calls)
