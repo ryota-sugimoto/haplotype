@@ -31,10 +31,12 @@ def count_allele(alleles):
 def major_allele(count_, threshold=0.2):
   count = count_.copy()
   del count["N"]
-  print count
   total = float(sum(count.values()))
-  return filter(lambda a: count[a]/total > threshold,
-                ["A","C","G","T"])
+  try:
+    return filter(lambda a: count[a]/total > threshold,
+                  ["A","C","G","T"])
+  except ZeroDivisionError:
+    return ["N"]
 
 def count_pair(data, pos1, pos2):
   count = {}
@@ -44,7 +46,7 @@ def count_pair(data, pos1, pos2):
       count[pair] = count.setdefault(pair,0) + 1
   return count
 
-def major_pair(count, threshold=0.1):
+def major_pair(count, threshold=0.2):
   total = float(sum(count.values()))
   res = []
   for pair in count.keys():
@@ -52,36 +54,76 @@ def major_pair(count, threshold=0.1):
       res.append(pair)
   return res
   
+def rich_read_position(data, min_read_num = 1):
+  positions = sorted(data[0]["snp"].keys())
+  res = []
+  for p in positions:
+    count = count_allele(snps_at_position(data, p))
+    del count["N"]
+    if sum(count.values()) > min_read_num:
+      res.append(p)
+  return res
 
 def heterotype_position(data):
-  positions = sorted(data[0]["snp"].keys())
+  positions = rich_read_position(data)
   return filter(lambda p: len(major_allele(
                                 count_allele(
                                   snps_at_position(data,p)))) == 2, positions)
 
-
-def chain_haprotype(data, max_chain_distance=1300):
+def connect_pair(a, b, pair1, pair2):
+  a_match_pair = filter(lambda p: a == p[0], [pair1, pair2])
+  b_match_pair = filter(lambda p: b == p[0], [pair1, pair2])
+  if len(a_match_pair) == len(b_match_pair) == 1:
+    return [a_match_pair[0][1], b_match_pair[0][1]]
+  else:
+    return []
+    
+def chain_haprotype(data):
   het_pos = heterotype_position(data)
   
-  heterotype_pairs = [ major_allele(
-                         count_allele(
-                           snps_at_position(data, p))) for p in het_pos ]
-
-  chaining_positions = []
-  for i1 in range(len(het_pos)-1):
-    p1 = het_pos[i1]
-#    for i2 in range(i1, len(het_pos))
-    p2 = het_pos[i1+1]
-    count = count_pair(data, p1, p2)
+  res = []
+  prev_pos = het_pos[0]
+  prev_pair = major_allele(count_allele(snps_at_position(data, prev_pos)))
+  current_haprotype = {prev_pos: prev_pair}
+  for current_pos in het_pos[1:]:
+    count = count_pair(data, prev_pos, current_pos)
     chains = major_pair(count)
-    if len(chains) != 2:
-      msg1 = "WARN:Too many or little chains between %i and %i.\n" % (p1,p2)
+    if len(chains) == 2:
+      if (chains[0][0] != chains[1][0]) and (chains[0][1] != chains[1][1]):
+        print "pos",current_pos
+        print "prev_pair",prev_pair
+        print "chains",chains
+        current_pair = connect_pair(prev_pair[0],
+                                    prev_pair[1],
+                                    chains[0],
+                                    chains[1])
+        print "current_pair",current_pair
+        prev_pair = current_pair
+        current_haprotype[current_pos] = current_pair
+      else:
+        msg1 = "WARN: Chains have been converged at %i\n" % (current_pos)
+        msg2 = "\t%s %s-%s\n\t%s %s-%s\n" % (prev_pair[0],
+                                             chains[0][0],chains[0][1],
+                                             prev_pair[1],
+                                             chains[1][0],chains[1][1])
+        sys.stderr.write(msg1 + msg2)
+        prev_pair = major_allele(
+                      count_allele(
+                        snps_at_position(data, current_pos)))
+        res.append(current_haprotype)
+        current_haprotype = {prev_pos: prev_pair}
+    else:
+      msg1 = "WARN: Too many or little chains between %i and %i.\n"
       msg2 = ", ".join(["%s: %i" % (key, count[key]) for key in chains])
-      sys.stderr.write(msg1 + "\t" +  msg2 + "\n")
- 
-    
-  
-    
+      sys.stderr.write(msg1 % (prev_pos, current_pos) + "\t" +  msg2 + "\n")
+      prev_pair = major_allele(
+                    count_allele(
+                      snps_at_position(data, current_pos))) 
+      res.append(current_haprotype)
+      current_haprotype = {prev_pos: prev_pair}
+    prev_pos = current_pos
+  res.append(current_haprotype)
+  return res
 
 import argparse
 import time
@@ -98,4 +140,8 @@ if __name__ == "__main__":
   #print count
   #print major_pair(count)
   #print heterotype_position(data)
-  chain_haprotype(data)
+  hapros = chain_haprotype(data) 
+  for hap in hapros:
+    for key in sorted(hap.keys()):
+      print key, hap[key]
+    print
