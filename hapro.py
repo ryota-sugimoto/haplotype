@@ -28,7 +28,7 @@ def count_allele(alleles):
     count[a] = count [a] + 1
   return count
 
-def major_allele(count_, threshold=0.2):
+def major_allele(count_, threshold=0.3):
   count = count_.copy()
   del count["N"]
   total = float(sum(count.values()))
@@ -90,15 +90,10 @@ def chain_haprotype(data):
     chains = major_pair(count)
     if len(chains) == 2:
       if (chains[0][0] != chains[1][0]) and (chains[0][1] != chains[1][1]):
-        print "pos",current_pos
-        print "prev_pair",prev_pair
-        print "chains",chains
         current_pair = connect_pair(prev_pair[0],
                                     prev_pair[1],
                                     chains[0],
                                     chains[1])
-        print "current_pair",current_pair
-        prev_pair = current_pair
         current_haprotype[current_pos] = current_pair
       else:
         msg1 = "WARN: Chains have been converged at %i\n" % (current_pos)
@@ -107,20 +102,21 @@ def chain_haprotype(data):
                                              prev_pair[1],
                                              chains[1][0],chains[1][1])
         sys.stderr.write(msg1 + msg2)
-        prev_pair = major_allele(
-                      count_allele(
-                        snps_at_position(data, current_pos)))
+        current_pair = major_allele(
+                         count_allele(
+                           snps_at_position(data, current_pos)))
         res.append(current_haprotype)
-        current_haprotype = {prev_pos: prev_pair}
+        current_haprotype = {current_pos: current_pair}
     else:
       msg1 = "WARN: Too many or little chains between %i and %i.\n"
       msg2 = ", ".join(["%s: %i" % (key, count[key]) for key in chains])
       sys.stderr.write(msg1 % (prev_pos, current_pos) + "\t" +  msg2 + "\n")
-      prev_pair = major_allele(
-                    count_allele(
-                      snps_at_position(data, current_pos))) 
+      current_pair = major_allele(
+                       count_allele(
+                         snps_at_position(data, current_pos))) 
       res.append(current_haprotype)
-      current_haprotype = {prev_pos: prev_pair}
+      current_haprotype = {current_pos: current_pair}
+    prev_pair = current_pair
     prev_pos = current_pos
   res.append(current_haprotype)
   return res
