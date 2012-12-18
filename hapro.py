@@ -12,7 +12,8 @@ def read_file(f):
       splited = line.strip().split("\t")
       read_name = splited[0]
       reference = splited[1]
-      snps = "".join([ s if s != "" else "N" for s in splited[2:]]) + (num_snp-len(splited[2:])) * "N"
+      snps = "".join([ s if s != "" else "N" for s in splited[2:]]) \
+              + (num_snp-len(splited[2:])) * "N"
       d = {"read_name": read_name,
            "reference": reference}
       d["snp"] = dict(zip(positions, snps))
@@ -54,7 +55,7 @@ def major_pair(count, threshold=0.2):
       res.append(pair)
   return res
   
-def rich_read_position(data, min_read_num = 1):
+def rich_read_position(data, min_read_num = 100):
   positions = sorted(data[0]["snp"].keys())
   res = []
   for p in positions:
@@ -121,23 +122,89 @@ def chain_haprotype(data):
   res.append(current_haprotype)
   return res
 
-import argparse
-import time
-if __name__ == "__main__":
+def match_score(str1, str2):
+  return reduce(lambda a,b: {"match": a["match"] + 1,
+                             "mismatch":a["mismatch"]} if b > 0 \
+                            else {"match": a["match"],
+                                  "mismatch": a["mismatch"] + 1},
+                map(lambda p: 1 if p[0] == p[1] else -1,
+                    filter(lambda p: p[0] != "N" and p[1] != "N",
+                           zip(str1, str2))),
+                {"match": 0, "mismatch":0})
+
+def align_reads(data, hapro, min_contig_length=10):
+  hap = filter(lambda contig: len(contig.keys()) > min_contig_length, hapro) 
+  res = []
+  for contig in hap:
+    positions = sorted(contig.keys())
+    hapro_snp = map(lambda i: "".join([ contig[p][i] for p in positions ]),
+                    [0,1])
+    appending = {0: [], 1: []}
+    for read in data:
+      read_name = read["read_name"]
+      read_snp = "".join([ read["snp"][p] for p in positions ])
+      scores = map(lambda h: match_score(h, read_snp), hapro_snp)
+      for hap_num in [0,1]:
+        if (scores[hap_num]["match"] > 2) \
+           and (scores[hap_num]["mismatch"] == 0):
+          appending[hap_num].append(read_name)
+    res.append(appending)
+  return res
+
+def filter_sam(readnames, in_sam, out_sam):
+  in_sam.seek(0)
+  set_readnames = set(readnames)
+  for line in in_sam:
+    if (line.split()[0] in set_readnames) or re.match("^@", line):
+      print >> out_sam, line.strip()
+
+def parse():
+  import argparse
+  
   parser = argparse.ArgumentParser()
+  parser.add_argument("-m", "--min_haprotype_contig_size",
+                      help="minimum size of haprotype contig",
+                      default=10,
+                      type=int)
+  parser.add_argument("-o", "--out_dir",
+                      default="./",
+                      type=str)
   parser.add_argument("snp_file")
-  args = parser.parse_args()
+  parser.add_argument("sam_file")
+  return parser.parse_args()
+
+import os
+import sys
+def check_file(name, check_func=os.path.isfile):
+  if not check_func(name):
+    print >> sys.stderr, name, "doesn't exist."
+    exit(1)
+
+import re
+def main():
+  args = parse()
+  check_file(args.out_dir, os.path.isdir)
+  check_file(args.snp_file)
+  check_file(args.sam_file)
+  in_sam = open(args.sam_file)
   data = read_file(open(args.snp_file))
-  positions = sorted(data[0]["snp"].keys())
-  #for p in positions:
-  #  count = count_allele(snps_at_position(data, p))
-  #  print p,count, major_allele(count)
-  #count = count_pair(data, 4492, 4568)
-  #print count
-  #print major_pair(count)
-  #print heterotype_position(data)
-  hapros = chain_haprotype(data) 
-  for hap in hapros:
-    for key in sorted(hap.keys()):
-      print key, hap[key]
+  hapro = chain_haprotype(data)
+  for hap in hapro:
+    for p in sorted(hap.keys()):
+      print p, hap[p]
     print
+  align = align_reads(data, hapro)
+  contig_index = 0
+  for contig in align:
+    for hap in contig.keys():
+      suffix = "_c%02i_h%02i.sam" % (contig_index, hap)
+      out_sam_fn = re.sub("\.sam$",
+                          suffix,
+                          args.sam_file.split("/")[-1])
+      out_sam_path = args.out_dir + "/" + out_sam_fn
+      out_sam = open(out_sam_path,"w")
+      filter_sam(contig[hap], in_sam, out_sam)
+    contig_index = contig_index + 1
+  
+if __name__ == "__main__":
+  main()
