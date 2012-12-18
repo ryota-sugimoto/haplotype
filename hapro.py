@@ -145,8 +145,8 @@ def align_reads(data, hapro, min_contig_length=10):
       read_snp = "".join([ read["snp"][p] for p in positions ])
       scores = map(lambda h: match_score(h, read_snp), hapro_snp)
       for hap_num in [0,1]:
-        if (scores[hap_num]["match"] > 2) \
-           and (scores[hap_num]["mismatch"] == 0):
+        if (scores[hap_num]["match"] > 0) \
+           and (scores[hap_num]["mismatch"] <= 1):
           appending[hap_num].append(read_name)
     res.append(appending)
   return res
@@ -155,7 +155,8 @@ def filter_sam(readnames, in_sam, out_sam):
   in_sam.seek(0)
   set_readnames = set(readnames)
   for line in in_sam:
-    if (line.split()[0] in set_readnames) or re.match("^@", line):
+    readname = line.split()[0]
+    if (readname in set_readnames) or re.match("^@", line):
       print >> out_sam, line.strip()
 
 def parse():
@@ -193,7 +194,7 @@ def main():
     for p in sorted(hap.keys()):
       print p, hap[p]
     print
-  align = align_reads(data, hapro)
+  align = align_reads(data, hapro, args.min_haprotype_contig_size)
   contig_index = 0
   for contig in align:
     for hap in contig.keys():
