@@ -20,6 +20,14 @@ def read_file(f):
       res.append(d)
   return res
 
+def remove_range(data, bed_data):
+  for read in data:
+    for range in bed_data:
+      if read["reference"] == range["reference"]:
+        for pos in read["snp"].keys():
+          if (pos > range["begin"]) and (pos <= range["end"]):
+            del read["snp"][pos]
+
 def snps_at_position(data, position):
   return map(lambda d: d["snp"][position], data)
 
@@ -65,11 +73,12 @@ def rich_read_position(data, min_read_num = 100):
       res.append(p)
   return res
 
-def heterotype_position(data):
-  positions = rich_read_position(data)
+def heterotype_position(data, min_snp_rate, min_depth):
+  positions = rich_read_position(data, min_depth)
   return filter(lambda p: len(major_allele(
                                 count_allele(
-                                  snps_at_position(data,p)))) == 2, positions)
+                                  snps_at_position(data,p)),
+                                          min_snp_rate)) == 2, positions)
 
 def connect_pair(a, b, pair1, pair2):
   a_match_pair = filter(lambda p: a == p[0], [pair1, pair2])
@@ -79,16 +88,26 @@ def connect_pair(a, b, pair1, pair2):
   else:
     return []
     
-def chain_haprotype(data):
-  het_pos = heterotype_position(data)
+def chain_haprotype(data, snp_threshold,
+                          hapro_chain_threshold,
+                          min_snp_depth,
+                          ignore_range):
+  remove_range(data, ignore_range)
+  het_pos = heterotype_position(data, snp_threshold, min_snp_depth)
   
   res = []
-  prev_pos = het_pos[0]
-  prev_pair = major_allele(count_allele(snps_at_position(data, prev_pos)))
+  try:
+    prev_pos = het_pos[0]
+  except IndexError:
+    sys.stderr.write("ERROR: There is no snp found.\n")
+    exit(1)
+  prev_pair = major_allele(count_allele(snps_at_position(data, prev_pos)),
+                           snp_threshold)
   current_haprotype = {prev_pos: prev_pair}
   for current_pos in het_pos[1:]:
     count = count_pair(data, prev_pos, current_pos)
-    chains = major_pair(count)
+    chains = major_pair(count,
+                        hapro_chain_threshold)
     if len(chains) == 2:
       if (chains[0][0] != chains[1][0]) and (chains[0][1] != chains[1][1]):
         current_pair = connect_pair(prev_pair[0],
@@ -105,7 +124,8 @@ def chain_haprotype(data):
         sys.stderr.write(msg1 + msg2)
         current_pair = major_allele(
                          count_allele(
-                           snps_at_position(data, current_pos)))
+                           snps_at_position(data, current_pos)),
+                                   snp_threshold)
         res.append(current_haprotype)
         current_haprotype = {current_pos: current_pair}
     else:
@@ -114,7 +134,8 @@ def chain_haprotype(data):
       sys.stderr.write(msg1 % (prev_pos, current_pos) + "\t" +  msg2 + "\n")
       current_pair = major_allele(
                        count_allele(
-                         snps_at_position(data, current_pos))) 
+                         snps_at_position(data, current_pos)),
+                                 snp_threshold) 
       res.append(current_haprotype)
       current_haprotype = {current_pos: current_pair}
     prev_pair = current_pair
@@ -159,6 +180,14 @@ def filter_sam(readnames, in_sam, out_sam):
     if (readname in set_readnames) or re.match("^@", line):
       print >> out_sam, line.strip()
 
+def bed_parser(file):
+  res = []
+  for line in file:
+    (ref, range) = line.strip().split(":")
+    (begin, end) = map(int,range.split("-"))
+    res.append({"reference": ref, "begin": begin, "end": end})
+  return res
+
 def parse():
   import argparse
   
@@ -169,6 +198,17 @@ def parse():
                       type=int)
   parser.add_argument("-o", "--out_dir",
                       default="./",
+                      type=str)
+  parser.add_argument("-s", "--snp_rate_threshold",
+                      default=0.3,
+                      type=float)
+  parser.add_argument("-H", "--hapro_neighbor_rate_threshold",
+                      default=0.2,
+                      type=float)
+  parser.add_argument("-M", "--minimum_read_depth_at_snp_pos",
+                      default=100,
+                      type=int)
+  parser.add_argument("-i", "--ignore_range_bed",
                       type=str)
   parser.add_argument("snp_file")
   parser.add_argument("sam_file")
@@ -187,9 +227,18 @@ def main():
   check_file(args.out_dir, os.path.isdir)
   check_file(args.snp_file)
   check_file(args.sam_file)
+  if args.ignore_range_bed:
+    check_file(args.ignore_range_bed)
+    ignore_range = bed_parser(open(args.ignore_range_bed))
+  else:
+    ignore_range = {}
   in_sam = open(args.sam_file)
   data = read_file(open(args.snp_file))
-  hapro = chain_haprotype(data)
+  hapro = chain_haprotype(data,
+                          args.snp_rate_threshold,
+                          args.hapro_neighbor_rate_threshold,
+                          args.minimum_read_depth_at_snp_pos,
+                          ignore_range)
   for hap in hapro:
     for p in sorted(hap.keys()):
       print p, hap[p]
