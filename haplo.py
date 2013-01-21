@@ -88,8 +88,8 @@ def connect_pair(a, b, pair1, pair2):
   else:
     return []
     
-def chain_haprotype(data, snp_threshold,
-                          hapro_chain_threshold,
+def chain_haplotype(data, snp_threshold,
+                          haplo_chain_threshold,
                           min_snp_depth,
                           ignore_range):
   remove_range(data, ignore_range)
@@ -103,18 +103,18 @@ def chain_haprotype(data, snp_threshold,
     exit(1)
   prev_pair = major_allele(count_allele(snps_at_position(data, prev_pos)),
                            snp_threshold)
-  current_haprotype = {prev_pos: prev_pair}
+  current_haplotype = {prev_pos: prev_pair}
   for current_pos in het_pos[1:]:
     count = count_pair(data, prev_pos, current_pos)
     chains = major_pair(count,
-                        hapro_chain_threshold)
+                        haplo_chain_threshold)
     if len(chains) == 2:
       if (chains[0][0] != chains[1][0]) and (chains[0][1] != chains[1][1]):
         current_pair = connect_pair(prev_pair[0],
                                     prev_pair[1],
                                     chains[0],
                                     chains[1])
-        current_haprotype[current_pos] = current_pair
+        current_haplotype[current_pos] = current_pair
       else:
         msg1 = "WARN: Chains have been converged at %i\n" % (current_pos)
         msg2 = "\t%s %s-%s\n\t%s %s-%s\n" % (prev_pair[0],
@@ -126,8 +126,8 @@ def chain_haprotype(data, snp_threshold,
                          count_allele(
                            snps_at_position(data, current_pos)),
                                    snp_threshold)
-        res.append(current_haprotype)
-        current_haprotype = {current_pos: current_pair}
+        res.append(current_haplotype)
+        current_haplotype = {current_pos: current_pair}
     else:
       msg1 = "WARN: Too many or little chains between %i and %i.\n"
       msg2 = ", ".join(["%s: %i" % (key, count[key]) for key in chains])
@@ -136,11 +136,11 @@ def chain_haprotype(data, snp_threshold,
                        count_allele(
                          snps_at_position(data, current_pos)),
                                  snp_threshold) 
-      res.append(current_haprotype)
-      current_haprotype = {current_pos: current_pair}
+      res.append(current_haplotype)
+      current_haplotype = {current_pos: current_pair}
     prev_pair = current_pair
     prev_pos = current_pos
-  res.append(current_haprotype)
+  res.append(current_haplotype)
   return res
 
 def match_score(str1, str2):
@@ -153,18 +153,18 @@ def match_score(str1, str2):
                            zip(str1, str2))),
                 {"match": 0, "mismatch":0})
 
-def align_reads(data, hapro, min_contig_length=10):
-  hap = filter(lambda contig: len(contig.keys()) > min_contig_length, hapro) 
+def align_reads(data, haplo, min_contig_length=10):
+  hap = filter(lambda contig: len(contig.keys()) > min_contig_length, haplo) 
   res = []
   for contig in hap:
     positions = sorted(contig.keys())
-    hapro_snp = map(lambda i: "".join([ contig[p][i] for p in positions ]),
+    haplo_snp = map(lambda i: "".join([ contig[p][i] for p in positions ]),
                     [0,1])
     appending = {0: [], 1: []}
     for read in data:
       read_name = read["read_name"]
       read_snp = "".join([ read["snp"][p] for p in positions ])
-      scores = map(lambda h: match_score(h, read_snp), hapro_snp)
+      scores = map(lambda h: match_score(h, read_snp), haplo_snp)
       for hap_num in [0,1]:
         if (scores[hap_num]["match"] > 0) \
            and (scores[hap_num]["mismatch"] <= 1):
@@ -192,8 +192,8 @@ def parse():
   import argparse
   
   parser = argparse.ArgumentParser()
-  parser.add_argument("-m", "--min_haprotype_contig_size",
-                      help="minimum size of haprotype contig",
+  parser.add_argument("-m", "--min_haplotype_contig_size",
+                      help="minimum size of haplotype contig",
                       default=10,
                       type=int)
   parser.add_argument("-o", "--out_dir",
@@ -202,7 +202,7 @@ def parse():
   parser.add_argument("-s", "--snp_rate_threshold",
                       default=0.3,
                       type=float)
-  parser.add_argument("-H", "--hapro_neighbor_rate_threshold",
+  parser.add_argument("-H", "--haplo_neighbor_rate_threshold",
                       default=0.2,
                       type=float)
   parser.add_argument("-M", "--minimum_read_depth_at_snp_pos",
@@ -234,16 +234,16 @@ def main():
     ignore_range = {}
   in_sam = open(args.sam_file)
   data = read_file(open(args.snp_file))
-  hapro = chain_haprotype(data,
+  haplo = chain_haplotype(data,
                           args.snp_rate_threshold,
-                          args.hapro_neighbor_rate_threshold,
+                          args.haplo_neighbor_rate_threshold,
                           args.minimum_read_depth_at_snp_pos,
                           ignore_range)
-  for hap in hapro:
+  for hap in haplo:
     for p in sorted(hap.keys()):
       print p, hap[p]
     print
-  align = align_reads(data, hapro, args.min_haprotype_contig_size)
+  align = align_reads(data, haplo, args.min_haplotype_contig_size)
   contig_index = 0
   for contig in align:
     for hap in contig.keys():
