@@ -239,6 +239,7 @@ def main():
                           args.haplo_neighbor_rate_threshold,
                           args.minimum_read_depth_at_snp_pos,
                           ignore_range)
+  print haplo
   for hap in haplo:
     for p in sorted(hap.keys()):
       print p, hap[p]
