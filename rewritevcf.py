@@ -1,4 +1,12 @@
 #!/usr/bin/env python
+
+#Copyright (c) 2013 All Right Reserved.
+#
+#author: Ryota Sugimoto
+#institute: National Institute of Genetics
+#email: ryota.sugimoto@gmail.com
+#date: 2013-05-16
+
 import re
 
 def genotype(line):
