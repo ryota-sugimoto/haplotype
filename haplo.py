@@ -1,4 +1,12 @@
 #!/usr/bin/env python
+
+#Copyright (c) 2013 All Right Reserved.
+#
+#author: Ryota Sugimoto
+#institute: National Institute of Genetics
+#email: ryota.sugimoto@gmail.com
+#date: 2013-05-16
+
 import sys
 
 def read_file(f):
@@ -88,10 +96,26 @@ def connect_pair(a, b, pair1, pair2):
   else:
     return []
     
+def no_converged_chain(chains_):
+  chains = chains_[:]
+  res = []
+  while chains:
+    c1 = chains.pop()
+    for c2 in chains:
+      if c1[0] != c2[0] and c1[1] != c2[1]:
+        chains.remove(c2)
+        res.append([c1,c2])
+  if len(res) != 1:
+    sys.stderr.write("I couldn't find a pair of unique chains\n")
+    sys.stderr.write(str(res))
+    exit(1)
+  return res[0]
+
 def chain_haplotype(data, snp_threshold,
                           haplo_chain_threshold,
                           min_snp_depth,
-                          ignore_range):
+                          ignore_range,
+                          force_connect=True):
   remove_range(data, ignore_range)
   het_pos = heterotype_position(data, snp_threshold, min_snp_depth)
   
@@ -108,7 +132,7 @@ def chain_haplotype(data, snp_threshold,
     count = count_pair(data, prev_pos, current_pos)
     chains = major_pair(count,
                         haplo_chain_threshold)
-    if len(chains) == 2:
+    if len(chains) == 2 and len(prev_pair) == 2:
       if (chains[0][0] != chains[1][0]) and (chains[0][1] != chains[1][1]):
         current_pair = connect_pair(prev_pair[0],
                                     prev_pair[1],
@@ -128,8 +152,25 @@ def chain_haplotype(data, snp_threshold,
                                    snp_threshold)
         res.append(current_haplotype)
         current_haplotype = {current_pos: current_pair}
+    elif len(chains) >= 3 and len(prev_pair) == 2 and force_connect == True:
+      msg1 = "WARN: There is %i possible chains between %i and %i."
+      msg2 = ", ".join(["%s: %i" % (key, count[key]) for key in chains])
+      msg3 = "I'm going to assume %s and %s are correct chains.\n"
+      assumed_chain_1 = sorted(count.keys(),
+                               reverse=True,
+                               key=lambda key: count[key])[0]
+      assumed_chains = no_converged_chain(chains)
+      current_pair = connect_pair(prev_pair[0],
+                                  prev_pair[1],
+                                  assumed_chains[0],
+                                  assumed_chains[1])
+      current_haplotype[current_pos] = current_pair
+      msg = msg1 % (len(chains),prev_pos,current_pos) + "\n" \
+          + "\t" + msg2 + "\n" \
+          + "\t" + msg3 % tuple(assumed_chains)
+      sys.stderr.write(msg)
     else:
-      msg1 = "WARN: Too many or little chains between %i and %i.\n"
+      msg1 = "WARN: Too many or small chains between %i and %i.\n"
       msg2 = ", ".join(["%s: %i" % (key, count[key]) for key in chains])
       sys.stderr.write(msg1 % (prev_pos, current_pos) + "\t" +  msg2 + "\n")
       current_pair = major_allele(
@@ -166,8 +207,8 @@ def align_reads(data, haplo, min_contig_length=10):
       read_snp = "".join([ read["snp"][p] for p in positions ])
       scores = map(lambda h: match_score(h, read_snp), haplo_snp)
       for hap_num in [0,1]:
-        if (scores[hap_num]["match"] > 0) \
-           and (scores[hap_num]["mismatch"] <= 1):
+        if (scores[hap_num]["match"] > 1) \
+           and (scores[hap_num]["mismatch"] <= 0):
           appending[hap_num].append(read_name)
     res.append(appending)
   return res
@@ -194,15 +235,19 @@ def parse():
   parser = argparse.ArgumentParser()
   parser.add_argument("-m", "--min_haplotype_contig_size",
                       help="minimum size of haplotype contig",
+                      action="store",
                       default=10,
                       type=int)
   parser.add_argument("-o", "--out_dir",
+                      help="specify output directory",
                       default="./",
                       type=str)
   parser.add_argument("-s", "--snp_rate_threshold",
+                      help="minimum rate of snp number",
                       default=0.3,
                       type=float)
   parser.add_argument("-H", "--haplo_neighbor_rate_threshold",
+                      help="minimum rate of chained snp number",
                       default=0.2,
                       type=float)
   parser.add_argument("-M", "--minimum_read_depth_at_snp_pos",
@@ -210,6 +255,9 @@ def parse():
                       type=int)
   parser.add_argument("-i", "--ignore_range_bed",
                       type=str)
+  parser.add_argument("-f", "--force_connect",
+                      help="force to connecting the haplo chains if possible.",
+                      action="store_true")
   parser.add_argument("snp_file")
   parser.add_argument("sam_file")
   return parser.parse_args()
@@ -238,11 +286,14 @@ def main():
                           args.snp_rate_threshold,
                           args.haplo_neighbor_rate_threshold,
                           args.minimum_read_depth_at_snp_pos,
-                          ignore_range)
+                          ignore_range,
+                          args.force_connect)
   for hap in haplo:
     for p in sorted(hap.keys()):
-      print p, hap[p]
-    print
+      try:
+        print >> sys.stderr, "%i: %s %s" % tuple([p] + hap[p])
+      except TypeError:
+        print >> sys.stderr, "%i: N N"  % tuple([p])
   align = align_reads(data, haplo, args.min_haplotype_contig_size)
   contig_index = 0
   for contig in align:
